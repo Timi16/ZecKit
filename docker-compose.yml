@@ -1,5 +1,3 @@
-version: '3.9'
-
 # ZecDev Launchpad - Main Docker Compose Configuration
 # Milestone 1: Zebra-only devnet setup
 
@@ -20,5 +18,13 @@ services:
   #     zebra:
   #       condition: service_healthy
 
-# Network is defined in zebra.yml
-# Volumes are defined in zebra.yml
+# Networks must be defined in main compose file when using extends
+networks:
+  zecdev:
+    driver: bridge
+    name: zecdev-network
+
+# Volumes must be defined in main compose file when using extends
+volumes:
+  zebra-data:
+    name: zecdev-zebra-data

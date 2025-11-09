@@ -49,11 +49,4 @@ services:
         reservations:
           memory: 2G
 
-networks:
-  zecdev:
-    driver: bridge
-    name: zecdev-network
-
-volumes:
-  zebra-data:
-    name: zecdev-zebra-data
+# Networks and volumes are defined in main docker-compose.yml
