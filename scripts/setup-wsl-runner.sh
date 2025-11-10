@@ -112,7 +112,7 @@ echo ""
 echo "Now paste your registration token when prompted by the config script:"
 echo ""
 
-./config.sh --url https://github.com/Supercoolkayy/Zecdev-launchpad
+./config.sh --url https://github.com/Supercoolkayy/ZecKit
 
 log_success "Runner configured!"
 echo ""

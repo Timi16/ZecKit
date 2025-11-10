@@ -99,4 +99,4 @@ If you'd like to contribute to the faucet implementation in M2:
 
 ---
 
-**Questions?** Open a [GitHub Discussion](https://github.com/Supercoolkayy/zecdev-launchpad/discussions)
+**Questions?** Open a [GitHub Discussion](https://github.com/Supercoolkayy/ZecKit/discussions)

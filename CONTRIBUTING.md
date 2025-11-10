@@ -33,8 +33,8 @@ Be respectful, collaborative, and constructive. We're building tools to help the
 
 ```bash
 # Fork and clone
-git clone https://github.com/Supercoolkayy/zecdev-launchpad.git
-cd zecdev-launchpad
+git clone https://github.com/Supercoolkayy/ZecKit.git
+cd ZecKit
 
 # Run setup
 ./scripts/setup-dev.sh
@@ -210,8 +210,8 @@ Contributions welcome:
 
 ## Getting Help
 
-- **Questions:** Open a [GitHub Discussion](https://github.com/Supercoolokay/zecdev-launchpad/discussions)
-- **Bugs:** Open an [Issue](https://github.com/Supercoolkayy/zecdev-launchpad/issues)
+- **Questions:** Open a [GitHub Discussion](https://github.com/Supercoolokay/ZecKit/discussions)
+- **Bugs:** Open an [Issue](https://github.com/Supercoolkayy/ZecKit/issues)
 - **Community:** [Zcash Forum](https://forum.zcashcommunity.com/)
 
 ---

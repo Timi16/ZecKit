@@ -2,7 +2,7 @@
 
 > A Linux-first toolkit for Zcash development on Zebra
 
-[![Smoke Test](https://github.com/Supercoolkayy/zecdev-launchpad/actions/workflows/smoke-test.yml/badge.svg)](https://github.com/Supercoolkayy/zecdev-launchpad/actions/workflows/smoke-test.yml)
+[![Smoke Test](https://github.com/Supercoolkayy/ZecKit/actions/workflows/smoke-test.yml/badge.svg)](https://github.com/Supercoolkayy/ZecKit/actions/workflows/smoke-test.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
 ---
@@ -68,8 +68,8 @@ In Milestone 1, we establish the foundation: a containerized Zcash regtest devne
 
 ```bash
 # Clone the repository
-git clone https://github.com/Supercoolkayy/zecdev-launchpad.git
-cd zecdev-launchpad
+git clone https://github.com/Supercoolkayy/ZecKit.git
+cd ZecKit
 
 # Run setup (checks dependencies, pulls images)
 chmod +x scripts/setup-dev.sh
@@ -164,7 +164,7 @@ See [specs/architecture.md](specs/architecture.md) for detailed system design.
 ### Repository Structure
 
 ```
-zecdev-launchpad/
+ZecKit/
 ├── docker/
 │   ├── compose/          # Service definitions
 │   ├── configs/          # Zebra configuration
@@ -337,8 +337,8 @@ Special thanks to:
 
 ## Support
 
-- **Issues:** [GitHub Issues](https://github.com/Supercoolkayy/zecdev-launchpad/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/Supercoolkayy/zecdev-launchpad/discussions)
+- **Issues:** [GitHub Issues](https://github.com/Supercoolkayy/ZecKit/issues)
+- **Discussions:** [GitHub Discussions](https://github.com/Supercoolkayy/ZecKit/discussions)
 - **Community:** [Zcash Community Forum](https://forum.zcashcommunity.com/)
 
 ---
