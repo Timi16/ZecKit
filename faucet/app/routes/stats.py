@@ -1,8 +1,8 @@
 """
 ZecKit Faucet - Statistics Endpoint
-Provides faucet usage statistics
+Provides faucet usage statistics with REAL uptime
 """
-from flask import Blueprint, jsonify, current_app
+from flask import Blueprint, jsonify, current_app, request
 from datetime import datetime
 import logging
 
@@ -11,14 +11,28 @@ logger = logging.getLogger(__name__)
 stats_bp = Blueprint('stats', __name__)
 
 
+def _format_uptime(seconds: float) -> str:
+    """Convert seconds into clean format: 3d 12h 45m 8s"""
+    if seconds < 0:
+        return "0s"
+
+    days = int(seconds // 86400)
+    hours = int((seconds % 86400) // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+
+    parts = []
+    if days:   parts.append(f"{days}d")
+    if hours:  parts.append(f"{hours}h")
+    if minutes:parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    return " ".join(parts)
+
+
 @stats_bp.route('/stats', methods=['GET'])
 def get_stats():
     """
-    Get faucet statistics
-    
-    Returns:
-        200: Statistics
-        503: Wallet not available
+    Get faucet statistics (now with real uptime!)
     """
     wallet = current_app.faucet_wallet
     
@@ -28,17 +42,14 @@ def get_stats():
             "code": "FAUCET_UNAVAILABLE"
         }), 503
     
-    # Get wallet stats
+    # Wallet stats
     wallet_stats = wallet.get_stats()
-    
-    # Calculate additional metrics
     tx_history = wallet.get_transaction_history(limit=1000)
-    
-    # Get last request timestamp
-    last_request = None
-    if tx_history:
-        last_request = tx_history[-1].get('timestamp')
-    
+    last_request = tx_history[-1].get('timestamp') if tx_history else None
+
+    # REAL UPTIME — this works because we set app.start_time in main.py
+    uptime_seconds = (datetime.utcnow() - current_app.start_time).total_seconds()
+
     stats = {
         "faucet_address": wallet_stats['address'],
         "current_balance": wallet_stats['current_balance'],
@@ -46,7 +57,8 @@ def get_stats():
         "total_sent": wallet_stats['total_sent'],
         "created_at": wallet_stats['created_at'],
         "last_request": last_request,
-        "uptime": "N/A",  # TODO: Track app start time
+        "uptime": _format_uptime(uptime_seconds),        # e.g. "2d 9h 34m 12s"
+        "uptime_seconds": int(uptime_seconds),           # for bots/monitoring
         "version": "0.1.0"
     }
     
@@ -57,13 +69,6 @@ def get_stats():
 def get_history():
     """
     Get recent transaction history
-    
-    Query Parameters:
-        limit: Number of transactions to return (default: 100, max: 1000)
-    
-    Returns:
-        200: Transaction history
-        503: Wallet not available
     """
     wallet = current_app.faucet_wallet
     
@@ -73,11 +78,9 @@ def get_history():
             "code": "FAUCET_UNAVAILABLE"
         }), 503
     
-    # Get limit from query params
-    from flask import request
     try:
         limit = int(request.args.get('limit', 100))
-        limit = min(max(1, limit), 1000)  # Clamp between 1-1000
+        limit = min(max(1, limit), 1000)
     except ValueError:
         limit = 100
     

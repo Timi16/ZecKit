@@ -14,7 +14,7 @@ from .config import get_config
 from .zebra_rpc import ZebraRPCClient
 from .wallet import FaucetWallet
 from .routes.health import health_bp
-
+from datetime import datetime
 
 def setup_logging(app: Flask) -> None:
     """Configure application logging"""
@@ -177,9 +177,12 @@ def create_app(config_name: Optional[str] = None) -> Flask:
             }
         })
     
+    app.start_time = datetime.utcnow()
+    app.logger.info(f"Faucet started at {app.start_time.isoformat()}Z")
+    # ──────────────────────────────────────────────────────────────
+    
     app.logger.info("✓ ZecKit Faucet initialized successfully")
     return app
-
 
 # For running directly with python -m app.main
 if __name__ == '__main__':
