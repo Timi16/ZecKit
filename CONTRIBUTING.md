@@ -188,7 +188,7 @@ chmod +x tests/smoke/my-new-test.sh
 
 ## Milestone Roadmap
 
-### Current: M1 - Foundation ✅
+### Current: M1 - Foundation
 - Repository structure
 - Zebra regtest devnet
 - Health checks & smoke tests
