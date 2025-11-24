@@ -45,8 +45,8 @@ services:
       context: ./docker/zingo
       dockerfile: Dockerfile
     container_name: zeckit-zingo-wallet
-    volumes:
-      - zingo-data:/var/zingo
+    tmpfs:
+      - /var/zingo  # ← EPHEMERAL WALLET (fixes sync issue!)
     depends_on:
       - zebra
       - lightwalletd
@@ -68,7 +68,6 @@ services:
       - "8080:8080"
     volumes:
       - ./faucet:/app
-      - zingo-data:/var/zingo:ro
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - LIGHTWALLETD_URI=http://lightwalletd:9067
@@ -80,7 +79,7 @@ services:
     restart: unless-stopped
     profiles:
       - lwd
-    user: "root"  # Run as root to access docker socket
+    user: "root"
 
 networks:
   zeckit-network:
@@ -88,5 +87,5 @@ networks:
 
 volumes:
   zebra-data:
-  zingo-data:
   lightwalletd-data:
+  # zingo-data removed - now using tmpfs
