@@ -185,29 +185,41 @@ async fn test_faucet_address(client: &Client) -> Result<()> {
 }
 
 async fn test_faucet_request(client: &Client) -> Result<()> {
-    // Step 1: Sync the wallet first
+    // Step 1: Detect which backend is running
     println!();
+    println!("    {} Detecting backend...", "↻".cyan());
+    
+    let backend_uri = detect_backend()?;
+    println!("    {} Using backend: {}", "✓".green(), backend_uri);
+    
+    // Step 2: Sync the wallet
     println!("    {} Syncing wallet before test...", "↻".cyan());
     
+    let sync_cmd = format!(
+        "bash -c \"echo -e 'sync run\\nquit' | zingo-cli --data-dir /var/zingo --server {} --chain regtest 2>&1\"",
+        backend_uri
+    );
+    
     let sync_result = Command::new("docker")
-        .args(&[
-            "exec", "-i", "zeckit-zingo-wallet",
-            "sh", "-c",
-            "echo 'sync run\nquit' | zingo-cli --data-dir /var/zingo --server http://lightwalletd:9067"
-        ])
+        .args(&["exec", "-i", "zeckit-zingo-wallet", "bash", "-c", &sync_cmd])
         .output();
     
     if let Ok(output) = sync_result {
-        if !output.status.success() {
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        if output_str.contains("Sync error") {
             println!("    {} Sync warning: {}", "⚠".yellow(), 
-                String::from_utf8_lossy(&output.stderr));
+                output_str.lines().find(|l| l.contains("error")).unwrap_or("Unknown sync error"));
+        } else if output_str.contains("sync is already running") {
+            println!("    {} Sync already running (background sync active)", "→".cyan());
+        } else {
+            println!("    {} Sync completed", "✓".green());
         }
     }
     
     // Wait for sync to settle
-    sleep(Duration::from_secs(5)).await;
+    sleep(Duration::from_secs(3)).await;
     
-    // Step 2: Check balance
+    // Step 3: Check balance
     println!("    {} Checking wallet balance...", "↻".cyan());
     
     let stats_resp = client
@@ -224,39 +236,57 @@ async fn test_faucet_request(client: &Client) -> Result<()> {
         if balance < 1.0 {
             println!("    {} Insufficient balance for test (need 1.0 ZEC)", "⚠".yellow());
             println!("    {} SKIP (wallet needs funds - this is expected on fresh start)", "→".yellow());
+            println!();
+            print!("  [5/5] Faucet funding request... ");
             // Don't fail - wallet needs time to see mined funds
             return Ok(());
         }
     }
     
-    // Step 3: Get fixture address to send to
+    // Step 4: Get TRANSPARENT test address to send to (faucet only supports transparent for now)
     println!("    {} Loading test fixture...", "↻".cyan());
     
-    let fixture_path = std::path::Path::new("fixtures/unified-addresses.json");
+    let fixture_path = std::path::Path::new("fixtures/test-address.json");
     if !fixture_path.exists() {
-        println!("    {} No fixture found - SKIP", "⚠".yellow());
-        return Ok(());
+        println!("    {} No fixture found - creating transparent address...", "⚠".yellow());
+        
+        // Generate transparent address for testing
+        match generate_test_fixture(&backend_uri).await {
+            Ok(addr) => {
+                println!("    {} Generated test address: {}", "✓".green(), &addr);
+            }
+            Err(e) => {
+                println!("    {} Could not generate fixture: {}", "✗".red(), e);
+                println!("    {} SKIP (no test address available)", "→".yellow());
+                println!();
+                print!("  [5/5] Faucet funding request... ");
+                return Ok(());
+            }
+        }
     }
     
-    let fixture_content = std::fs::read_to_string(fixture_path)?;
-    let fixture: Value = serde_json::from_str(&fixture_content)?;
+    let fixture_content = std::fs::read_to_string(fixture_path)
+        .map_err(|e| crate::error::ZecDevError::HealthCheck(format!("Could not read fixture: {}", e)))?;
     
-    let test_address = fixture["faucet_address"]
+    let fixture: Value = serde_json::from_str(&fixture_content)
+        .map_err(|e| crate::error::ZecDevError::HealthCheck(format!("Invalid fixture JSON: {}", e)))?;
+    
+    let test_address = fixture["test_address"]
         .as_str()
         .ok_or_else(|| crate::error::ZecDevError::HealthCheck(
             "Invalid fixture address".into()
         ))?;
     
-    // Step 4: Test funding request
-    println!("    {} Sending 1.0 ZEC...", "↻".cyan());
+    println!("    {} Sending 1.0 ZEC to {}...", "↻".cyan(), &test_address[..10]);
     
+    // Step 5: Test funding request
     let resp = client
         .post("http://127.0.0.1:8080/request")
         .json(&serde_json::json!({
             "address": test_address,
             "amount": 1.0
         }))
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(45))
         .send()
         .await?;
 
@@ -279,11 +309,91 @@ async fn test_faucet_request(client: &Client) -> Result<()> {
                 "Empty TXID returned".into()
             ));
         }
-        // Success - we sent a real shielded transaction!
+        // Success - we sent a real transaction!
         Ok(())
     } else {
         Err(crate::error::ZecDevError::HealthCheck(
             "No TXID in response".into()
         ))
     }
+}
+
+fn detect_backend() -> Result<String> {
+    // Check if zaino container is running
+    let output = Command::new("docker")
+        .args(&["ps", "--filter", "name=zeckit-zaino", "--format", "{{.Names}}"])
+        .output()
+        .map_err(|e| crate::error::ZecDevError::Docker(format!("Failed to detect backend: {}", e)))?;
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    
+    if stdout.contains("zeckit-zaino") {
+        Ok("http://zaino:9067".to_string())
+    } else {
+        // Check for lightwalletd
+        let output = Command::new("docker")
+            .args(&["ps", "--filter", "name=zeckit-lightwalletd", "--format", "{{.Names}}"])
+            .output()
+            .map_err(|e| crate::error::ZecDevError::Docker(format!("Failed to detect backend: {}", e)))?;
+        
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        
+        if stdout.contains("zeckit-lightwalletd") {
+            Ok("http://lightwalletd:9067".to_string())
+        } else {
+            Err(crate::error::ZecDevError::HealthCheck(
+                "No backend detected (neither zaino nor lightwalletd running)".into()
+            ))
+        }
+    }
+}
+
+async fn generate_test_fixture(backend_uri: &str) -> Result<String> {
+    // Get TRANSPARENT address for testing (faucet only supports transparent for now)
+    let cmd_str = format!(
+        "bash -c \"echo -e 't_addresses\\nquit' | zingo-cli --data-dir /var/zingo --server {} --chain regtest --nosync 2>&1\"",
+        backend_uri
+    );
+    
+    let output = Command::new("docker")
+        .args(&["exec", "zeckit-zingo-wallet", "bash", "-c", &cmd_str])
+        .output()
+        .map_err(|e| crate::error::ZecDevError::HealthCheck(format!("Docker exec failed: {}", e)))?;
+    
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    
+    // Look for tm (transparent regtest) address in output
+    for line in output_str.lines() {
+        if line.contains("\"encoded_address\"") && line.contains("tm") {
+            // Extract transparent address
+            if let Some(start) = line.find("tm") {
+                let addr_part = &line[start..];
+                let end = addr_part.find(|c: char| c == '"' || c == '\n' || c == ' ')
+                    .unwrap_or(addr_part.len());
+                let address = &addr_part[..end];
+                
+                // Validate it's a proper address (starts with tm and reasonable length)
+                if address.starts_with("tm") && address.len() > 30 {
+                    // Save fixture with transparent address for testing
+                    let fixture = serde_json::json!({
+                        "test_address": address,
+                        "type": "transparent",
+                        "note": "Transparent test address for faucet e2e tests (faucet supports transparent only)"
+                    });
+                    
+                    std::fs::create_dir_all("fixtures")
+                        .map_err(|e| crate::error::ZecDevError::HealthCheck(format!("Could not create fixtures dir: {}", e)))?;
+                    
+                    std::fs::write(
+                        "fixtures/test-address.json",
+                        serde_json::to_string_pretty(&fixture).unwrap()
+                    ).map_err(|e| crate::error::ZecDevError::HealthCheck(format!("Could not write fixture: {}", e)))?;
+                    
+                    return Ok(address.to_string());
+                }
+            }
+        }
+    }
+    
+    Err(crate::error::ZecDevError::HealthCheck("Could not find transparent address in wallet output".into()))
 }

@@ -11,10 +11,12 @@ RUN apt-get update && apt-get install -y \
     netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone and build zingolib
+# Clone YOUR FORK with the regtest fix
 WORKDIR /build
-RUN git clone https://github.com/zingolabs/zingolib.git && \
+RUN git clone https://github.com/Timi16/zingolib.git && \
     cd zingolib && \
+    git checkout fix/regtest-chain-support && \
+    rustup set profile minimal && \
     cargo build --release --package zingo-cli && \
     mv target/release/zingo-cli /usr/local/bin/ && \
     chmod +x /usr/local/bin/zingo-cli

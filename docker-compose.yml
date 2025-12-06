@@ -28,7 +28,6 @@ services:
     ports:
       - "127.0.0.1:8232:8232"
       - "127.0.0.1:8233:8233"
-      # REMOVED 9067 - Only Zaino needs this port
     volumes:
       - ./docker/configs/zebra.toml:/etc/zebrad/zebrad.toml:ro
       - zebra-data:/var/zebra
@@ -87,7 +86,7 @@ services:
       dockerfile: Dockerfile
       args:
         - NO_TLS=true
-        - RUST_VERSION=1.91.1  # As per Nacho's suggestion; matches official build
+        - RUST_VERSION=1.91.1
     container_name: zeckit-zaino
     ports:
       - "127.0.0.1:9067:9067"
@@ -180,7 +179,7 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
-      - ./faucet:/app:ro
+      - ./faucet:/app
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - LIGHTWALLETD_URI=http://lightwalletd:9067
