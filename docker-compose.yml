@@ -47,24 +47,21 @@ services:
   # LIGHTWALLETD (Profile: lwd)
   # ========================================
   lightwalletd:
-    image: electriccoinco/lightwalletd:latest
+    build:
+      context: ./docker/lightwalletd
+      dockerfile: Dockerfile
     container_name: zeckit-lightwalletd
     ports:
       - "127.0.0.1:9067:9067"
     depends_on:
       zebra:
         condition: service_healthy
-    command:
-      - --grpc-bind-addr=0.0.0.0:9067
-      - --rpchost=zebra
-      - --rpcport=8232
-      - --rpcuser=zcashrpc
-      - --rpcpassword=notsecure
-      - --log-file=/dev/stdout
-      - --log-level=7
-      - --no-tls-very-insecure=true
+    environment:
+      - ZEBRA_RPC_HOST=zebra
+      - ZEBRA_RPC_PORT=8232
+      - LWD_GRPC_BIND=0.0.0.0:9067
     volumes:
-      - lightwalletd-data:/var/lib/lightwalletd
+      - lightwalletd-data:/var/lightwalletd
     networks:
       - zeckit-network
     restart: unless-stopped
@@ -113,7 +110,7 @@ services:
   # ========================================
   zingo-wallet-lwd:
     build:
-      context: ./docker/zingo
+      context: ./docker/zingo-wallet
       dockerfile: Dockerfile
     container_name: zeckit-zingo-wallet
     tmpfs:
@@ -143,7 +140,7 @@ services:
   # ========================================
   zingo-wallet-zaino:
     build:
-      context: ./docker/zingo
+      context: ./docker/zingo-wallet
       dockerfile: Dockerfile
     container_name: zeckit-zingo-wallet
     tmpfs:
@@ -179,7 +176,7 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
-      - ./faucet:/app
+      - ./faucet:/app:ro
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - LIGHTWALLETD_URI=http://lightwalletd:9067
