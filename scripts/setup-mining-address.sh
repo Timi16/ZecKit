@@ -57,7 +57,7 @@ done
 if [ -z "$WALLET_ADDRESS" ]; then
   echo "⚠️  Could not extract address from wallet"
   echo "📝 Using deterministic address from zingolib default seed..."
-  WALLET_ADDRESS="t2UNzUUx8mWBCRYPRezvA363EYXyEpHokyi"
+  WALLET_ADDRESS="tmV8gvQCgovPQ9JwzLVsesLZjuyEEF5STAD"
   echo "  Address: $WALLET_ADDRESS"
 fi
 
