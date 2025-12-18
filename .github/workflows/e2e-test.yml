@@ -59,13 +59,44 @@ jobs:
           cargo --version
           echo ""
       
-      - name: Clean up previous runs
+      - name: Aggressive cache cleanup
         run: |
-          echo "Cleaning up from previous runs..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Aggressive Cache Cleanup"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          
+          # Stop all containers
+          echo "Stopping all containers..."
           docker compose down -v --remove-orphans 2>/dev/null || true
-          docker system prune -f --volumes 2>/dev/null || true
-          rm -rf /var/zaino /var/zingo /var/faucet_wallet 2>/dev/null || true
-          echo "✓ Cleanup complete"
+          docker stop $(docker ps -aq) 2>/dev/null || true
+          
+          # Remove volumes
+          echo "Removing Docker volumes..."
+          docker volume rm $(docker volume ls -q) 2>/dev/null || true
+          docker volume prune -f 2>/dev/null || true
+          
+          # Remove images to force rebuild
+          echo "Removing Docker images..."
+          docker rmi zeckit-zebra zeckit-zaino zeckit-zingo-wallet-zaino zeckit-faucet 2>/dev/null || true
+          
+          # Full system prune
+          echo "Running full Docker system prune..."
+          docker system prune -af --volumes 2>/dev/null || true
+          
+          # Remove all cached data directories
+          echo "Removing cached data directories..."
+          sudo rm -rf /var/zaino 2>/dev/null || true
+          sudo rm -rf /var/zingo 2>/dev/null || true
+          sudo rm -rf /var/faucet_wallet 2>/dev/null || true
+          
+          # Remove any local cache
+          echo "Removing local cache..."
+          rm -rf ~/.zaino ~/.zingo ~/.faucet_wallet 2>/dev/null || true
+          rm -rf /tmp/zaino* /tmp/zingo* /tmp/faucet* 2>/dev/null || true
+          
+          echo ""
+          echo "✓ Aggressive cleanup complete - fresh start ready!"
           echo ""
       
       - name: Build CLI binary
@@ -86,7 +117,7 @@ jobs:
           echo "  Starting ZecKit Devnet"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          ./cli/target/release/zecdev up --backend zaino --fresh || {
+          timeout 600 ./cli/target/release/zecdev up --backend zaino --fresh || {
             echo "✗ Devnet startup failed!"
             echo ""
             echo "Container logs:"
