@@ -9,14 +9,12 @@ on:
     branches:
       - main
       - develop
-  workflow_dispatch:  # Allow manual triggers
+  workflow_dispatch:
 
 jobs:
   e2e-tests:
     name: ZecKit E2E Test Suite
-    runs-on: self-hosted  # Runs on your Mac
-    
-    # Timeout after 30 minutes (full devnet + tests)
+    runs-on: self-hosted
     timeout-minutes: 30
     
     steps:
@@ -29,26 +27,23 @@ jobs:
           echo "  Starting Docker Desktop"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          # Start Docker Desktop
           open /Applications/Docker.app
           
-          # Wait for Docker daemon to be ready
           echo "Waiting for Docker daemon..."
-          for i in {1..60}; do
+          for i in {1..150}; do
             if docker ps > /dev/null 2>&1; then
               echo "✓ Docker daemon is ready!"
               break
             fi
-            echo "Attempt $i/60: Docker not ready yet, waiting..."
+            echo "Attempt $i/150: Waiting for Docker..."
             sleep 2
           done
           
-          # Verify Docker is working
           docker --version
           docker compose version
           echo ""
       
-      - name: Check environment
+      - name: Environment check
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "  Environment Check"
@@ -66,31 +61,25 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
           
-          # Stop all containers
           echo "Stopping all containers..."
           docker compose down -v --remove-orphans 2>/dev/null || true
           docker stop $(docker ps -aq) 2>/dev/null || true
           
-          # Remove volumes
           echo "Removing Docker volumes..."
           docker volume rm $(docker volume ls -q) 2>/dev/null || true
           docker volume prune -f 2>/dev/null || true
           
-          # Remove images to force rebuild
           echo "Removing Docker images..."
           docker rmi zeckit-zebra zeckit-zaino zeckit-zingo-wallet-zaino zeckit-faucet 2>/dev/null || true
           
-          # Full system prune
           echo "Running full Docker system prune..."
           docker system prune -af --volumes 2>/dev/null || true
           
-          # Remove all cached data directories
           echo "Removing cached data directories..."
           sudo rm -rf /var/zaino 2>/dev/null || true
           sudo rm -rf /var/zingo 2>/dev/null || true
           sudo rm -rf /var/faucet_wallet 2>/dev/null || true
           
-          # Remove any local cache
           echo "Removing local cache..."
           rm -rf ~/.zaino ~/.zingo ~/.faucet_wallet 2>/dev/null || true
           rm -rf /tmp/zaino* /tmp/zingo* /tmp/faucet* 2>/dev/null || true
@@ -116,8 +105,10 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "  Starting ZecKit Devnet"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
           
-          timeout 600 ./cli/target/release/zecdev up --backend zaino --fresh || {
+          # Start devnet and wait for completion (Mac compatible - no timeout command)
+          ./cli/target/release/zecdev up --backend zaino --fresh || {
             echo "✗ Devnet startup failed!"
             echo ""
             echo "Container logs:"
@@ -135,7 +126,6 @@ jobs:
           echo "  Verifying Services"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          # Check Zebra RPC
           echo "Checking Zebra RPC..."
           if curl -sf --max-time 5 \
             --data-binary '{"jsonrpc":"2.0","id":"1","method":"getblockcount","params":[]}' \
@@ -147,7 +137,6 @@ jobs:
             exit 1
           fi
           
-          # Check Zaino gRPC
           echo "Checking Zaino..."
           if docker exec zeckit-zaino zindexer --version > /dev/null 2>&1; then
             echo "✓ Zaino OK"
@@ -156,7 +145,6 @@ jobs:
             exit 1
           fi
           
-          # Check Faucet
           echo "Checking Faucet..."
           if curl -sf http://127.0.0.1:8080/health | grep -q "OK"; then
             echo "✓ Faucet OK"
@@ -165,7 +153,6 @@ jobs:
             exit 1
           fi
           
-          # Check Zingo Wallet
           echo "Checking Zingo Wallet..."
           if docker exec zeckit-zingo-wallet bash -c "echo -e 'quit' | zingo-cli --data-dir /var/zingo --server http://zaino:9067 --chain regtest --nosync" > /dev/null 2>&1; then
             echo "✓ Zingo Wallet OK"
@@ -206,7 +193,6 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
           
-          # Check wallet balance via CLI
           echo "Wallet balance:"
           docker exec zeckit-zingo-wallet bash -c "echo -e 'balance\nquit' | zingo-cli --data-dir /var/zingo --server http://zaino:9067 --chain regtest --nosync" 2>/dev/null || echo "Could not retrieve balance"
           
