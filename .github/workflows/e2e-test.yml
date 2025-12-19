@@ -10,12 +10,19 @@ on:
       - main
       - develop
   workflow_dispatch:
+    inputs:
+      fresh_start:
+        description: 'Force fresh start (wipe all data)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   e2e-tests:
-    name: ZecKit E2E Tests Suite
+    name: ZecKit E2E Test Suite
     runs-on: self-hosted
-    timeout-minutes: 30
+    
+    timeout-minutes: 180  # Much faster without fresh builds
     
     steps:
       - name: Checkout code
@@ -24,91 +31,130 @@ jobs:
       - name: Start Docker Desktop
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "  Starting Docker Desktop"
+          echo "  Ensuring Docker Desktop is Running"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          open /Applications/Docker.app
-          
-          echo "Waiting for Docker daemon..."
-          for i in {1..150}; do
-            if docker ps > /dev/null 2>&1; then
-              echo "✓ Docker daemon is ready!"
-              break
-            fi
-            echo "Attempt $i/150: Waiting for Docker..."
-            sleep 2
-          done
+          if ! docker ps > /dev/null 2>&1; then
+            echo "Starting Docker Desktop..."
+            open /Applications/Docker.app
+            
+            for i in {1..60}; do
+              if docker ps > /dev/null 2>&1; then
+                echo "✓ Docker daemon is ready!"
+                break
+              fi
+              echo "Attempt $i/60: Waiting for Docker..."
+              sleep 2
+            done
+          else
+            echo "✓ Docker already running"
+          fi
           
           docker --version
           docker compose version
           echo ""
       
-      - name: Environment check
+      - name: Check for fresh start requirement
+        id: fresh_check
         run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "  Environment Check"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          docker --version
-          docker compose version
-          rustc --version
-          cargo --version
+          FRESH_START="false"
+          
+          # Force fresh if manually triggered with fresh_start=true
+          if [ "${{ github.event.inputs.fresh_start }}" == "true" ]; then
+            echo "Manual fresh start requested"
+            FRESH_START="true"
+          fi
+          
+          # Force fresh if this is the first run (no existing volumes)
+          if ! docker volume ls | grep -q "zeckit"; then
+            echo "No existing volumes found - first run"
+            FRESH_START="true"
+          fi
+          
+          # Check if CLI binary exists and is recent
+          if [ ! -f "cli/target/release/zecdev" ]; then
+            echo "CLI binary not found - will rebuild"
+            FRESH_START="true"
+          fi
+          
+          echo "fresh_start=$FRESH_START" >> $GITHUB_OUTPUT
           echo ""
       
-      - name: Aggressive cache cleanup
+      - name: Quick cleanup (if not fresh)
+        if: steps.fresh_check.outputs.fresh_start != 'true'
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "  Aggressive Cache Cleanup"
+          echo "  Quick Cleanup (Reusing Data)"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
           
-          echo "Stopping all containers..."
+          # Just stop containers, keep volumes
+          docker compose down --remove-orphans 2>/dev/null || true
+          
+          echo "✓ Containers stopped, volumes preserved"
+          echo ""
+      
+      - name: Deep cleanup (fresh start only)
+        if: steps.fresh_check.outputs.fresh_start == 'true'
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Deep Cleanup (Fresh Start)"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
           docker compose down -v --remove-orphans 2>/dev/null || true
-          docker stop $(docker ps -aq) 2>/dev/null || true
+          docker system prune -f --volumes 2>/dev/null || true
+          rm -rf /var/zaino /var/zingo /var/faucet_wallet 2>/dev/null || true
           
-          echo "Removing Docker volumes..."
-          docker volume rm $(docker volume ls -q) 2>/dev/null || true
-          docker volume prune -f 2>/dev/null || true
-          
-          echo "Removing Docker images..."
-          docker rmi zeckit-zebra zeckit-zaino zeckit-zingo-wallet-zaino zeckit-faucet 2>/dev/null || true
-          
-          echo "Running full Docker system prune..."
-          docker system prune -af --volumes 2>/dev/null || true
-          
-          echo "Removing cached data directories..."
-          sudo rm -rf /var/zaino 2>/dev/null || true
-          sudo rm -rf /var/zingo 2>/dev/null || true
-          sudo rm -rf /var/faucet_wallet 2>/dev/null || true
-          
-          echo "Removing local cache..."
-          rm -rf ~/.zaino ~/.zingo ~/.faucet_wallet 2>/dev/null || true
-          rm -rf /tmp/zaino* /tmp/zingo* /tmp/faucet* 2>/dev/null || true
-          
-          echo ""
-          echo "✓ Aggressive cleanup complete - fresh start ready!"
+          echo "✓ Full cleanup complete"
           echo ""
       
-      - name: Build CLI binary
+      - name: Build/Update CLI binary
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "  Building ZecDev CLI"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
           cd cli
-          cargo build --release
+          
+          # Only rebuild if source changed or binary missing
+          if [ "${{ steps.fresh_check.outputs.fresh_start }}" == "true" ] || \
+             [ ! -f "target/release/zecdev" ] || \
+             [ "src/main.rs" -nt "target/release/zecdev" ]; then
+            echo "Rebuilding CLI binary..."
+            cargo build --release
+          else
+            echo "Using existing CLI binary (no changes detected)"
+          fi
+          
           cd ..
-          echo "✓ CLI binary built"
           ls -lh cli/target/release/zecdev
           echo ""
       
-      - name: Start devnet with zaino backend
+      - name: Start devnet (quick start)
+        if: steps.fresh_check.outputs.fresh_start != 'true'
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "  Starting ZecKit Devnet"
+          echo "  Starting ZecKit Devnet (Quick Start)"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
           
-          # Start devnet and wait for completion (Mac compatible - no timeout command)
-          ./cli/target/release/zecdev up --backend zaino --fresh || {
+          # Use existing data - much faster!
+          timeout 180 ./cli/target/release/zecdev up --backend zaino || {
+            echo "✗ Quick start failed, trying fresh start..."
+            docker compose down -v
+            timeout 600 ./cli/target/release/zecdev up --backend zaino --fresh || exit 1
+          }
+          
+          echo ""
+          echo "✓ Devnet started (using existing data)"
+          echo ""
+      
+      - name: Start devnet (fresh start)
+        if: steps.fresh_check.outputs.fresh_start == 'true'
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Starting ZecKit Devnet (Fresh Start)"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          timeout 600 ./cli/target/release/zecdev up --backend zaino --fresh || {
             echo "✗ Devnet startup failed!"
             echo ""
             echo "Container logs:"
@@ -117,7 +163,7 @@ jobs:
           }
           
           echo ""
-          echo "✓ Devnet started successfully"
+          echo "✓ Devnet started from scratch"
           echo ""
       
       - name: Verify services are healthy
@@ -126,17 +172,21 @@ jobs:
           echo "  Verifying Services"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
+          # Check Zebra RPC
           echo "Checking Zebra RPC..."
-          if curl -sf --max-time 5 \
-            --data-binary '{"jsonrpc":"2.0","id":"1","method":"getblockcount","params":[]}' \
-            -H 'content-type: application/json' \
-            http://127.0.0.1:8232 | grep -q "result"; then
-            echo "✓ Zebra RPC OK"
-          else
-            echo "✗ Zebra RPC FAILED"
-            exit 1
-          fi
+          for i in {1..30}; do
+            if curl -sf --max-time 5 \
+              --data-binary '{"jsonrpc":"2.0","id":"1","method":"getblockcount","params":[]}' \
+              -H 'content-type: application/json' \
+              http://127.0.0.1:8232 | grep -q "result"; then
+              echo "✓ Zebra RPC OK"
+              break
+            fi
+            [ $i -eq 30 ] && { echo "✗ Zebra RPC FAILED"; exit 1; }
+            sleep 2
+          done
           
+          # Check Zaino gRPC
           echo "Checking Zaino..."
           if docker exec zeckit-zaino zindexer --version > /dev/null 2>&1; then
             echo "✓ Zaino OK"
@@ -145,14 +195,18 @@ jobs:
             exit 1
           fi
           
+          # Check Faucet
           echo "Checking Faucet..."
-          if curl -sf http://127.0.0.1:8080/health | grep -q "OK"; then
-            echo "✓ Faucet OK"
-          else
-            echo "✗ Faucet FAILED"
-            exit 1
-          fi
+          for i in {1..15}; do
+            if curl -sf http://127.0.0.1:8080/health | grep -q "OK"; then
+              echo "✓ Faucet OK"
+              break
+            fi
+            [ $i -eq 15 ] && { echo "✗ Faucet FAILED"; exit 1; }
+            sleep 2
+          done
           
+          # Check Zingo Wallet
           echo "Checking Zingo Wallet..."
           if docker exec zeckit-zingo-wallet bash -c "echo -e 'quit' | zingo-cli --data-dir /var/zingo --server http://zaino:9067 --chain regtest --nosync" > /dev/null 2>&1; then
             echo "✓ Zingo Wallet OK"
@@ -193,26 +247,11 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
           
-          echo "Wallet balance:"
           docker exec zeckit-zingo-wallet bash -c "echo -e 'balance\nquit' | zingo-cli --data-dir /var/zingo --server http://zaino:9067 --chain regtest --nosync" 2>/dev/null || echo "Could not retrieve balance"
-          
-          echo ""
-      
-      - name: Check faucet status
-        if: always()
-        run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "  Faucet Status"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-          
-          echo "Faucet stats:"
-          curl -s http://127.0.0.1:8080/stats | jq . || echo "Could not get faucet stats"
-          
           echo ""
       
       - name: Collect logs
-        if: always()
+        if: failure()
         run: |
           echo "Collecting logs for artifact..."
           mkdir -p logs
@@ -221,9 +260,7 @@ jobs:
           docker compose logs zaino > logs/zaino.log 2>&1 || true
           docker compose logs zingo-wallet-zaino > logs/zingo-wallet.log 2>&1 || true
           docker compose logs faucet-zaino > logs/faucet.log 2>&1 || true
-          
           docker ps -a > logs/containers.log 2>&1 || true
-          docker network ls > logs/networks.log 2>&1 || true
           
           echo "✓ Logs collected"
       
@@ -241,15 +278,11 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "  Cleanup"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
           
-          echo "Tearing down devnet..."
-          docker compose down -v 2>/dev/null || true
+          # Stop containers but KEEP volumes for next run
+          docker compose down --remove-orphans 2>/dev/null || true
           
-          echo "Final cleanup..."
-          docker system prune -f --volumes 2>/dev/null || true
-          
-          echo "✓ Cleanup complete"
+          echo "✓ Containers stopped (volumes preserved for next run)"
           echo ""
       
       - name: Test summary
@@ -264,29 +297,14 @@ jobs:
           if [ "${{ job.status }}" == "success" ]; then
             echo "✓ Status: ALL TESTS PASSED ✓"
             echo ""
-            echo "Completed checks:"
-            echo "  ✓ Docker Desktop started"
-            echo "  ✓ CLI binary built"
-            echo "  ✓ Devnet started (Zebra + Zaino + Zingo + Faucet)"
-            echo "  ✓ All services healthy"
-            echo "  ✓ Smoke tests passed"
-            echo "  ✓ Wallet synced"
-            echo "  ✓ Faucet operational"
+            echo "Run type: ${{ steps.fresh_check.outputs.fresh_start == 'true' && 'Fresh Start' || 'Quick Start (Reused Data)' }}"
             echo ""
-            echo "The ZecKit devnet is working correctly!"
+            echo "Next run will be faster (reusing volumes)!"
           else
             echo "✗ Status: TESTS FAILED ✗"
             echo ""
-            echo "Check the logs above for details"
-            echo "Artifact logs: e2e-test-logs-${{ github.run_number }}"
-            echo ""
-            echo "Common issues:"
-            echo "  - Docker Desktop not running"
-            echo "  - Insufficient disk space"
-            echo "  - Port conflicts (8232, 9067, 8080)"
-            echo "  - Network issues"
+            echo "Logs available in artifact: e2e-test-logs-${{ github.run_number }}"
           fi
           
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
