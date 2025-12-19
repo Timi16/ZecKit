@@ -22,7 +22,7 @@ jobs:
     name: ZecKit E2E Test Suite
     runs-on: self-hosted
     
-    timeout-minutes: 180  # Much faster without fresh builds
+    timeout-minutes: 180
     
     steps:
       - name: Checkout code
@@ -87,7 +87,6 @@ jobs:
           echo "  Quick Cleanup (Reusing Data)"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          # Just stop containers, keep volumes
           docker compose down --remove-orphans 2>/dev/null || true
           
           echo "✓ Containers stopped, volumes preserved"
@@ -115,7 +114,6 @@ jobs:
           
           cd cli
           
-          # Only rebuild if source changed or binary missing
           if [ "${{ steps.fresh_check.outputs.fresh_start }}" == "true" ] || \
              [ ! -f "target/release/zecdev" ] || \
              [ "src/main.rs" -nt "target/release/zecdev" ]; then
@@ -136,12 +134,42 @@ jobs:
           echo "  Starting ZecKit Devnet (Quick Start)"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          # Use existing data - much faster!
-          timeout 180 ./cli/target/release/zecdev up --backend zaino || {
-            echo "✗ Quick start failed, trying fresh start..."
+          # macOS-compatible timeout using background process
+          ./cli/target/release/zecdev up --backend zaino &
+          PID=$!
+          
+          # Wait up to 3 minutes
+          SECONDS=0
+          while kill -0 $PID 2>/dev/null && [ $SECONDS -lt 180 ]; do
+            sleep 1
+          done
+          
+          if kill -0 $PID 2>/dev/null; then
+            echo "✗ Quick start timed out after 3 minutes"
+            kill $PID 2>/dev/null || true
+            echo "Falling back to fresh start..."
             docker compose down -v
-            timeout 600 ./cli/target/release/zecdev up --backend zaino --fresh || exit 1
-          }
+            
+            ./cli/target/release/zecdev up --backend zaino --fresh &
+            PID=$!
+            SECONDS=0
+            while kill -0 $PID 2>/dev/null && [ $SECONDS -lt 600 ]; do
+              sleep 1
+            done
+            
+            if kill -0 $PID 2>/dev/null; then
+              echo "✗ Fresh start also timed out"
+              kill $PID 2>/dev/null || true
+              exit 1
+            fi
+          fi
+          
+          wait $PID
+          if [ $? -ne 0 ]; then
+            echo "✗ Devnet startup failed!"
+            docker compose logs || true
+            exit 1
+          fi
           
           echo ""
           echo "✓ Devnet started (using existing data)"
@@ -154,13 +182,29 @@ jobs:
           echo "  Starting ZecKit Devnet (Fresh Start)"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          timeout 600 ./cli/target/release/zecdev up --backend zaino --fresh || {
-            echo "✗ Devnet startup failed!"
-            echo ""
-            echo "Container logs:"
+          # macOS-compatible timeout
+          ./cli/target/release/zecdev up --backend zaino --fresh &
+          PID=$!
+          
+          # Wait up to 10 minutes for fresh start
+          SECONDS=0
+          while kill -0 $PID 2>/dev/null && [ $SECONDS -lt 600 ]; do
+            sleep 1
+          done
+          
+          if kill -0 $PID 2>/dev/null; then
+            echo "✗ Devnet startup timed out after 10 minutes"
+            kill $PID 2>/dev/null || true
             docker compose logs || true
             exit 1
-          }
+          fi
+          
+          wait $PID
+          if [ $? -ne 0 ]; then
+            echo "✗ Devnet startup failed!"
+            docker compose logs || true
+            exit 1
+          fi
           
           echo ""
           echo "✓ Devnet started from scratch"
@@ -182,7 +226,10 @@ jobs:
               echo "✓ Zebra RPC OK"
               break
             fi
-            [ $i -eq 30 ] && { echo "✗ Zebra RPC FAILED"; exit 1; }
+            if [ $i -eq 30 ]; then
+              echo "✗ Zebra RPC FAILED"
+              exit 1
+            fi
             sleep 2
           done
           
@@ -202,7 +249,10 @@ jobs:
               echo "✓ Faucet OK"
               break
             fi
-            [ $i -eq 15 ] && { echo "✗ Faucet FAILED"; exit 1; }
+            if [ $i -eq 15 ]; then
+              echo "✗ Faucet FAILED"
+              exit 1
+            fi
             sleep 2
           done
           
