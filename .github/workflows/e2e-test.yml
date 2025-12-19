@@ -16,7 +16,7 @@ jobs:
     name: ZecKit E2E Test Suite
     runs-on: self-hosted
     
-    timeout-minutes: 60  # 1 hour
+    timeout-minutes: 60
     
     steps:
       - name: Checkout code
@@ -85,14 +85,12 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
           
-          # NO --fresh flag - reuse existing images!
           ./cli/target/release/zecdev up --backend zaino &
           PID=$!
           
           SECONDS=0
-          MAX_SECONDS=3600  # 1 hour
+          MAX_SECONDS=3600
           
-          # Show progress every 30 seconds
           while kill -0 $PID 2>/dev/null && [ $SECONDS -lt $MAX_SECONDS ]; do
             sleep 30
             ELAPSED_MIN=$((SECONDS / 60))
@@ -146,8 +144,8 @@ jobs:
           done
           
           echo "Checking Zaino..."
-          if docker exec zeckit-zaino zindexer --version > /dev/null 2>&1; then
-            echo "✓ Zaino OK"
+          if docker exec zeckit-zaino zainod --version > /dev/null 2>&1; then
+            echo "✓ Zaino OK ($(docker exec zeckit-zaino zainod --version))"
           else
             echo "✗ Zaino FAILED"
             exit 1
