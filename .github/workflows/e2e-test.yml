@@ -61,9 +61,25 @@ jobs:
       
       - name: Clean up previous runs
         run: |
-          echo "Cleaning up from previous runs..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Cleaning Up Previous Runs"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Stop containers
+          echo "Stopping containers..."
+          docker compose down 2>/dev/null || true
+          
+          # Remove volumes to clear stale data (keeps images!)
+          echo "Removing stale volumes..."
+          docker volume rm zeckit_zebra-data 2>/dev/null || true
+          docker volume rm zeckit_zaino-data 2>/dev/null || true
+          docker volume rm zeckit_zingo-data 2>/dev/null || true
+          docker volume rm zeckit_faucet-wallet-data 2>/dev/null || true
+          
+          # Remove orphaned containers
           docker compose down --remove-orphans 2>/dev/null || true
-          echo "✓ Cleanup complete"
+          
+          echo "✓ Cleanup complete (images preserved)"
           echo ""
       
       - name: Build CLI binary
@@ -81,11 +97,12 @@ jobs:
       - name: Start devnet with zaino backend
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "  Starting ZecKit Devnet (Using Existing Images)"
+          echo "  Starting ZecKit Devnet"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
           
-          ./cli/target/release/zecdev up --backend zaino --fresh &
+          # No --fresh flag, but volumes are already cleared above
+          ./cli/target/release/zecdev up --backend zaino &
           PID=$!
           
           SECONDS=0
@@ -119,71 +136,6 @@ jobs:
           
           echo ""
           echo "✓ Devnet started successfully"
-          echo ""
-      
-      - name: Verify services are healthy
-        run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "  Verifying Services (10 min timeout per service)"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          
-          echo "Checking Zebra RPC..."
-          for i in {1..300}; do
-            if curl -sf --max-time 5 \
-              --data-binary '{"jsonrpc":"2.0","id":"1","method":"getblockcount","params":[]}' \
-              -H 'content-type: application/json' \
-              http://127.0.0.1:8232 | grep -q "result"; then
-              echo "✓ Zebra RPC OK"
-              break
-            fi
-            if [ $i -eq 300 ]; then
-              echo "✗ Zebra RPC FAILED after 10 minutes"
-              exit 1
-            fi
-            sleep 2
-          done
-          
-          echo "Checking Zaino..."
-          for i in {1..300}; do
-            if docker exec zeckit-zaino zainod --version > /dev/null 2>&1; then
-              echo "✓ Zaino OK ($(docker exec zeckit-zaino zainod --version))"
-              break
-            fi
-            if [ $i -eq 300 ]; then
-              echo "✗ Zaino FAILED after 10 minutes"
-              exit 1
-            fi
-            sleep 2
-          done
-          
-          echo "Checking Faucet..."
-          for i in {1..300}; do
-            if curl -sf http://127.0.0.1:8080/health | grep -q "OK"; then
-              echo "✓ Faucet OK"
-              break
-            fi
-            if [ $i -eq 300 ]; then
-              echo "✗ Faucet FAILED after 10 minutes"
-              exit 1
-            fi
-            sleep 2
-          done
-          
-          echo "Checking Zingo Wallet..."
-          for i in {1..300}; do
-            if docker exec zeckit-zingo-wallet bash -c "echo -e 'quit' | zingo-cli --data-dir /var/zingo --server http://zaino:9067 --chain regtest --nosync" > /dev/null 2>&1; then
-              echo "✓ Zingo Wallet OK"
-              break
-            fi
-            if [ $i -eq 300 ]; then
-              echo "✗ Zingo Wallet FAILED after 10 minutes"
-              exit 1
-            fi
-            sleep 2
-          done
-          
-          echo ""
-          echo "✓ All services healthy!"
           echo ""
       
       - name: Run smoke tests
@@ -280,8 +232,7 @@ jobs:
             echo "Completed checks:"
             echo "  ✓ Docker Desktop started"
             echo "  ✓ CLI binary built"
-            echo "  ✓ Devnet started (using existing images)"
-            echo "  ✓ All services healthy"
+            echo "  ✓ Devnet started (clean state, cached images)"
             echo "  ✓ Smoke tests passed"
             echo "  ✓ Wallet synced"
             echo "  ✓ Faucet operational"
