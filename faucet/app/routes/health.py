@@ -27,7 +27,7 @@ def health_check():
         return jsonify({
             "status": "healthy",
             "wallet_backend": "zingo-cli",
-            "transaction_mode": "REAL_BLOCKCHAIN",
+            "network": "regtest",
             "balance": float(balance),
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "version": "0.2.0"

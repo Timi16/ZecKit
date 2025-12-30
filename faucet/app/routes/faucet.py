@@ -1,51 +1,108 @@
 """
-ZecKit Faucet - Funding Request Endpoint (REAL Transactions)
+ZecKit Faucet - Funding Request Endpoint
 """
 from flask import Blueprint, jsonify, request, current_app
 from datetime import datetime
-import re
+import requests
 
 faucet_bp = Blueprint('faucet', __name__)
 
 
-def validate_address(address: str) -> tuple:
-    """Validate Zcash address format"""
-    if not address:
+def validate_address_via_zebra_rpc(address: str) -> tuple:
+    """
+    Validate Zcash address using Zebra's validateaddress RPC.
+    This ensures we're validating against actual Zcash protocol rules,
+    not just regex patterns.
+    
+    Args:
+        address: Zcash address to validate
+        
+    Returns:
+        tuple: (is_valid: bool, message: str)
+    """
+    if not address or not isinstance(address, str):
         return False, "Address is required"
     
-    # Transparent: t1 or t3 (mainnet), tm (testnet/regtest)
-    # Shielded Sapling: zs1
-    # Unified: u1
-    
-    if address.startswith('t'):
-        if not re.match(r'^t[13m][a-zA-Z0-9]{33}$', address):
-            return False, "Invalid transparent address format"
-    elif address.startswith('zs1'):
-        if len(address) < 78:
-            return False, "Invalid sapling address format"
-    elif address.startswith('u1'):
-        if len(address) < 100:
-            return False, "Invalid unified address format"
-    else:
-        return False, "Unsupported address type"
-    
-    return True, ""
+    try:
+        # Use Zebra RPC to validate (as Pacu requested)
+        zebra_rpc_url = "http://zebra:18232"
+        
+        response = requests.post(
+            zebra_rpc_url,
+            json={
+                "jsonrpc": "2.0",
+                "id": "validate_addr",
+                "method": "validateaddress",
+                "params": [address]
+            },
+            auth=("zcashrpc", "notsecure"),
+            timeout=5
+        )
+        
+        if response.status_code != 200:
+            current_app.logger.error(f"Zebra RPC error: HTTP {response.status_code}")
+            return False, "Unable to validate address - RPC unavailable"
+        
+        rpc_result = response.json()
+        
+        # Check for RPC errors
+        if 'error' in rpc_result and rpc_result['error'] is not None:
+            error_msg = rpc_result['error'].get('message', 'Unknown RPC error')
+            current_app.logger.error(f"Zebra RPC error: {error_msg}")
+            return False, f"Address validation failed: {error_msg}"
+        
+        result = rpc_result.get('result', {})
+        
+        # Zebra returns isvalid field
+        if not result.get('isvalid', False):
+            return False, "Invalid Zcash address"
+        
+        # Additional check: ensure it's a regtest address
+        # Regtest addresses have specific prefixes
+        valid_prefixes = ('tm', 'uregtest', 'zregtestsapling')
+        
+        if not any(address.startswith(prefix) for prefix in valid_prefixes):
+            current_app.logger.warning(
+                f"Address {address[:12]}... does not have regtest prefix"
+            )
+            return False, "Address is not a valid regtest address"
+        
+        validated_address = result.get('address', address)
+        current_app.logger.info(f"Address validated: {validated_address[:12]}...")
+        
+        return True, validated_address
+        
+    except requests.exceptions.Timeout:
+        current_app.logger.error("Zebra RPC timeout")
+        return False, "Address validation timeout - node not responding"
+        
+    except requests.exceptions.ConnectionError:
+        current_app.logger.error("Cannot connect to Zebra RPC")
+        return False, "Cannot connect to validation service"
+        
+    except Exception as e:
+        current_app.logger.error(f"Unexpected validation error: {e}")
+        return False, f"Validation error: {str(e)}"
 
 
 @faucet_bp.route('/request', methods=['POST'])
 def request_funds():
     """
-    Request test funds from faucet - REAL BLOCKCHAIN TRANSACTION!
+    Request test funds from faucet on regtest network
     """
     data = request.get_json()
     if not data:
         return jsonify({"error": "Invalid JSON"}), 400
     
-    # Validate address
+    # Validate address using Zebra RPC (not regex!)
     to_address = data.get('address')
-    is_valid, error_msg = validate_address(to_address)
+    is_valid, result_or_error = validate_address_via_zebra_rpc(to_address)
+    
     if not is_valid:
-        return jsonify({"error": error_msg}), 400
+        return jsonify({"error": result_or_error}), 400
+    
+    # Use the validated/normalized address
+    validated_address = result_or_error
     
     # Get amount
     try:
@@ -74,10 +131,10 @@ def request_funds():
             "error": f"Insufficient faucet balance (available: {balance} ZEC)"
         }), 503
     
-    # Send REAL transaction
+    # Send transaction
     try:
         result = wallet.send_to_address(
-            to_address=to_address,
+            to_address=validated_address,
             amount=amount,
             memo=data.get('memo')
         )
@@ -92,14 +149,16 @@ def request_funds():
         return jsonify({
             "success": True,
             "txid": result["txid"],
-            "address": to_address,
+            "address": validated_address,
             "amount": amount,
             "new_balance": float(new_balance),
             "timestamp": result["timestamp"],
-            "message": f"Successfully sent {amount} ZEC. Verify TXID: {result['txid']}"
+            "network": "regtest",
+            "message": f"Sent {amount} ZEC on regtest. TXID: {result['txid']}"
         }), 200
     
     except Exception as e:
+        current_app.logger.error(f"Transaction error: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -113,7 +172,8 @@ def get_faucet_address():
     
     return jsonify({
         "address": wallet.get_address("unified"),
-        "balance": float(wallet.get_balance())
+        "balance": float(wallet.get_balance()),
+        "network": "regtest"
     }), 200
 
 

@@ -1,5 +1,5 @@
 """
-ZecKit Faucet - Statistics Endpoint (REAL Transactions)
+ZecKit Faucet - Statistics Endpoint
 """
 from flask import Blueprint, jsonify, current_app, request
 from datetime import datetime
@@ -55,7 +55,7 @@ def get_stats():
         "last_request": last_request,
         "uptime": _format_uptime(uptime_seconds),
         "uptime_seconds": int(uptime_seconds),
-        "transaction_mode": "REAL_BLOCKCHAIN",
+        "network": "regtest",
         "wallet_backend": "zingo-cli",
         "version": "0.2.0"
     }), 200

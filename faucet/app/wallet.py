@@ -60,6 +60,9 @@ class ZingoWallet:
             if isinstance(result, dict) and 'output' in result:
                 output = result['output']
                 
+                # Log raw output for debugging (helps catch upstream changes)
+                print(f"[DEBUG] Balance output: {output[:300]}")
+                
                 patterns = [
                     r'confirmed_transparent_balance:\s*([\d_]+)',
                     r'confirmed_sapling_balance:\s*([\d_]+)',
@@ -71,6 +74,10 @@ class ZingoWallet:
                     if match:
                         balance_str = match.group(1).replace('_', '')
                         total_zatoshis += int(balance_str)
+                
+                # Warn if parsing failed
+                if total_zatoshis == 0 and 'balance' in output.lower():
+                    print("⚠️  WARNING: Balance parsing may have failed - check output format")
             
             return total_zatoshis / 100_000_000
             
@@ -121,9 +128,15 @@ class ZingoWallet:
             
             if isinstance(result, dict) and 'output' in result:
                 output = result['output']
+                
+                # Log for debugging
+                print(f"[DEBUG] Address output: {output[:200]}")
+                
                 match = re.search(r'uregtest1[a-z0-9]{70,}', output)
                 if match:
                     return match.group(0)
+                else:
+                    print("⚠️  WARNING: No regtest address found in output")
             
             return None
             

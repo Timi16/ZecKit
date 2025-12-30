@@ -1,5 +1,5 @@
 """
-ZecKit Faucet - Main Application (REAL Transactions via Zingo-CLI)
+ZecKit Faucet - Main Application (Regtest Network)
 """
 from flask import Flask, jsonify
 from flask_cors import CORS
@@ -41,13 +41,11 @@ def create_app(config_name: str = None) -> Flask:
     # Initialize Wallet (Zingo-CLI wrapper)
     try:
         app.faucet_wallet = get_wallet()
-        # Skip balance check at startup - it times out with subprocess
-        # Balance is available via /stats endpoint which uses same method
         address = app.faucet_wallet.get_address("unified")
         
         logger.info(f"✓ Faucet wallet loaded (ZingoLib)")
+        logger.info(f"  Network: regtest")
         logger.info(f"  Address: {address}")
-        # logger.info(f"  Balance: {balance} ZEC")  # Available via /stats
         
     except Exception as e:
         logger.error(f"Failed to initialize wallet: {e}")
@@ -64,8 +62,8 @@ def create_app(config_name: str = None) -> Flask:
         return jsonify({
             "name": "ZecKit Faucet",
             "version": "0.2.0",
-            "description": "Zcash Regtest Faucet with REAL transactions (ZingoLib)",
-            "transaction_mode": "REAL_BLOCKCHAIN",
+            "description": "Zcash Regtest Development Faucet",
+            "network": "regtest",
             "wallet_backend": "zingo-cli",
             "endpoints": {
                 "health": "/health",
@@ -80,7 +78,7 @@ def create_app(config_name: str = None) -> Flask:
     # Store app start time
     app.start_time = datetime.utcnow()
     
-    logger.info("✓ ZecKit Faucet initialized (REAL TRANSACTIONS)")
+    logger.info("✓ ZecKit Faucet initialized (Regtest Network)")
     
     return app
 
