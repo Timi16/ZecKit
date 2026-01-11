@@ -32,7 +32,7 @@ chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.12", features = ["json"] }
 
 # Zingolib - using dev branch for latest regtest fixes
-zingolib = { git = "https://github.com/zingolabs/zingolib", branch = "dev" }
+zingolib = { git = "https://github.com/zingolabs/zingolib", rev = "faf9a2c1" }
 
 # Zcash primitives for address validation
 zcash_primitives = "0.15"

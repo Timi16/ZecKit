@@ -378,7 +378,7 @@ lightwalletd-data/
 - Slower than Rust
 - Extra Docker socket dependency
 
-**Alternative considered:** Rust faucet → Deferred to M3
+**Alternative considered:**  FAUCET SERVICE → Deferred to M3
 
 ---
 

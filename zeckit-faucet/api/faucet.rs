@@ -1,10 +1,9 @@
 use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-
+use zcash_address::{Network, ZcashAddress};
 use crate::AppState;
 use crate::error::FaucetError;
-use crate::validation::validate_address_via_zebra;
 
 #[derive(Debug, Deserialize)]
 pub struct FaucetRequest {
@@ -25,19 +24,34 @@ pub struct FaucetResponse {
     message: String,
 }
 
-pub async fn request_funds(
+/// Validate a Zcash address using librustzcash for regtest environment.
+/// This is faster and more reliable than RPC validation for the faucet use case.
+fn validate_address(address: &str) -> Result<String, FaucetError> {
+    let parsed = address.parse::<ZcashAddress>()
+        .map_err(|e| FaucetError::InvalidAddress(
+            format!("Invalid Zcash address format: {}", e)
+        ))?;
+    
+    // Regtest addresses use the Test network type in zcash_address
+    match parsed.network() {
+        Network::Test | Network::Regtest => Ok(address.to_string()),
+        other => Err(FaucetError::InvalidAddress(
+            format!("Address is for {:?} network, expected regtest", other)
+        ))
+    }
+}
+
+/// Request funds from the faucet.
+/// This handler is exposed via routing but not part of the public module API.
+pub(crate) async fn request_funds(
     State(state): State<AppState>,
     Json(payload): Json<FaucetRequest>,
 ) -> Result<Json<FaucetResponse>, FaucetError> {
-    // Validate address via Zebra RPC
-    let validated_address = validate_address_via_zebra(
-        &payload.address,
-        &state.config.zebra_rpc_url,
-    ).await?;
-
+    // Validate address using librustzcash (no RPC call needed)
+    let validated_address = validate_address(&payload.address)?;
+    
     // Get and validate amount
     let amount = payload.amount.unwrap_or(state.config.faucet_amount_default);
-    
     if amount < state.config.faucet_amount_min || amount > state.config.faucet_amount_max {
         return Err(FaucetError::InvalidAmount(format!(
             "Amount must be between {} and {} ZEC",
@@ -45,14 +59,14 @@ pub async fn request_funds(
             state.config.faucet_amount_max
         )));
     }
-
+    
     // Send transaction
     let mut wallet = state.wallet.write().await;
     let txid = wallet.send_transaction(&validated_address, amount, payload.memo).await?;
-
+    
     // Get new balance
     let new_balance = wallet.get_balance().await?;
-
+    
     Ok(Json(FaucetResponse {
         success: true,
         txid: txid.clone(),
@@ -65,17 +79,18 @@ pub async fn request_funds(
     }))
 }
 
+/// Get the faucet's own address and balance.
+/// Useful for monitoring faucet health and available funds.
 pub async fn get_faucet_address(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, FaucetError> {
     let wallet = state.wallet.read().await;
     let address = wallet.get_unified_address().await?;
     let balance = wallet.get_balance().await?;
-
+    
     Ok(Json(json!({
         "address": address,
         "balance": balance.total_zec(),
         "network": "regtest"
     })))
 }
-
