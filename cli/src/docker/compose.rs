@@ -1,5 +1,7 @@
 use crate::error::{Result, zeckitError};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::io::{BufRead, BufReader};
+use std::thread;
 
 #[derive(Clone)]
 pub struct DockerCompose {
@@ -43,21 +45,64 @@ impl DockerCompose {
     }
 
     pub fn up_with_profile(&self, profile: &str) -> Result<()> {
-        // BUILD IMAGES FIRST (if needed - Docker caches automatically)
-        let build_output = Command::new("docker")
-            .arg("compose")
+        println!("Building Docker images for profile '{}'...", profile);
+        println!("(This may take 10-20 minutes on first build)");
+        println!();
+        
+        let mut cmd = Command::new("docker");
+        cmd.arg("compose")
             .arg("--profile")
             .arg(profile)
             .arg("build")
+            .arg("--progress=plain")  // Force plain text output
             .current_dir(&self.project_dir)
-            .output()?;
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
-        if !build_output.status.success() {
-            let error = String::from_utf8_lossy(&build_output.stderr);
-            return Err(zeckitError::Docker(format!("Image build failed: {}", error)));
+        let mut child = cmd.spawn()
+            .map_err(|e| zeckitError::Docker(format!("Failed to start build: {}", e)))?;
+
+        // Get both stdout and stderr
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+
+        // Spawn threads to read both streams simultaneously
+        let stdout_thread = thread::spawn(move || {
+            if let Some(stream) = stdout {
+                let reader = BufReader::new(stream);
+                for line in reader.lines().flatten() {
+                    println!("{}", line);
+                }
+            }
+        });
+
+        let stderr_thread = thread::spawn(move || {
+            if let Some(stream) = stderr {
+                let reader = BufReader::new(stream);
+                for line in reader.lines().flatten() {
+                    eprintln!("{}", line);
+                }
+            }
+        });
+
+        // Wait for both threads
+        let _ = stdout_thread.join();
+        let _ = stderr_thread.join();
+
+        // Wait for the child process
+        let status = child.wait()
+            .map_err(|e| zeckitError::Docker(format!("Build process error: {}", e)))?;
+
+        if !status.success() {
+            return Err(zeckitError::Docker("Image build failed".into()));
         }
 
+        println!();
+        println!("✓ Images built successfully");
+        println!();
+
         // THEN START SERVICES
+        println!("Starting containers...");
         let output = Command::new("docker")
             .arg("compose")
             .arg("--profile")
