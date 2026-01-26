@@ -4,10 +4,11 @@ use std::path::PathBuf;
 use tracing::info;
 use zingolib::{
     lightclient::LightClient,
-    config::ZingoConfig,
+    config::{ZingoConfig, ChainType},
 };
 use axum::http::Uri;
 use zcash_primitives::consensus::BlockHeight;
+use zebra_chain::parameters::testnet::ConfiguredActivationHeights;
 use zcash_primitives::memo::MemoBytes;
 use zcash_client_backend::zip321::{TransactionRequest, Payment};
 
@@ -56,7 +57,21 @@ impl WalletManager {
             FaucetError::Wallet(format!("Failed to create wallet directory: {}", e))
         })?;
 
-        let config = ZingoConfig::build(zingolib::config::ChainType::Regtest(Default::default()))
+        let activation_heights = ConfiguredActivationHeights {
+            before_overwinter: Some(1),
+            overwinter: Some(1),
+            sapling: Some(1),
+            blossom: Some(1),
+            heartwood: Some(1),
+            canopy: Some(1),
+            nu5: Some(1),
+            nu6: Some(1),
+            nu6_1: Some(1),
+            nu7: Some(1),
+        };
+        let chain_type = ChainType::Regtest(activation_heights);
+        
+        let config = ZingoConfig::build(chain_type)
             .set_lightwalletd_uri(uri)
             .set_wallet_dir(data_dir.clone())
             .create();
@@ -80,15 +95,10 @@ impl WalletManager {
 
         let history = TransactionHistory::load(&data_dir)?;
 
-        info!("Syncing wallet with chain...");
-        let mut client_mut = client;
-        client_mut.sync().await.map_err(|e| {
-            FaucetError::Wallet(format!("Sync failed: {}", e))
-        })?;
+        // REMOVED THE SYNC HERE - let the API endpoint handle syncing
+        info!("Wallet initialized successfully (sync not started)");
 
-        info!("Wallet initialized successfully");
-
-        Ok(Self { client: client_mut, history })
+        Ok(Self { client, history })  // Changed from client_mut
     }
 
     pub async fn get_unified_address(&self) -> Result<String, FaucetError> {
